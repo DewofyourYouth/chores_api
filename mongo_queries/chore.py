@@ -1,23 +1,13 @@
 from dataclasses import dataclass
 from enum import Enum
-import os
 import re
 from typing import Protocol
-from urllib import response
+from mongo_queries import *
 
-from dotenv import load_dotenv
 from more_itertools import flatten
-from pymongo import MongoClient
 
 DAILY_CHORE_VAL = 1
 ALTERNATING_CHORE_VAL = 3
-
-load_dotenv()
-
-password = os.getenv("PASSWORD")
-mongo_user = os.getenv("MONGO_USER")
-mongo_uri = f"mongodb+srv://{mongo_user}:{password}@cluster0.iep8o.azure.mongodb.net/chores?retryWrites=true&w=majority"
-client = MongoClient(mongo_uri)
 
 
 class DoneState(Enum):
@@ -32,7 +22,7 @@ class Chore(Protocol):
 
 
 @dataclass
-class AlternatingChore:
+class AlternatingChore(Chore):
     chore: str
     done_state: DoneState
 
@@ -43,18 +33,16 @@ class AlternatingChore:
 
 
 @dataclass
-class DailyChore:
+class DailyChore(Chore):
     chore: str
     done_state: DoneState
 
     def score(self) -> int:
-        match (self.done_state):
-            case DoneState.UNMARKED:
-                return 0
-            case DoneState.DONE:
-                return DAILY_CHORE_VAL
-            case DoneState.NOT_DONE:
-                return 0 - DAILY_CHORE_VAL
+        if self.done_state == DoneState.DONE:
+            return DAILY_CHORE_VAL
+        elif self.done_state == DoneState.NOT_DONE:
+            return 0 - DAILY_CHORE_VAL
+        return 0
 
 
 def get_chore(
@@ -65,12 +53,12 @@ def get_chore(
     return AlternatingChore(chore, done) if is_alternating else DailyChore(chore, done)
 
 
-def calculate_points(kid_name: str) -> list[dict[str, int]] | None:
+def calculate_points(kid_name: str) -> int:
     kid_regex = re.compile(kid_name, re.IGNORECASE)
     db = client.chores
     chores = list(db.chores.find({"kidName": kid_regex}))
     if len(chores) == 0:
-        return None
+        return 0
     chores = list(flatten([c["chores"] for c in chores]))
     return sum(
         [
